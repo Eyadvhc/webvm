@@ -3,75 +3,87 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>WebVM - تشغيل التطبيقات أوفلاين</title>
+    <title>WebVM .deb Runner - Offline</title>
     <style>
         * { box-sizing: border-box; user-select: none; }
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #0f172a; color: #f8fafc; font-family: Tahoma, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .upload-card { background: #1e293b; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; max-width: 450px; width: 90%; border: 1px solid #334155; }
-        h1 { font-size: 22px; margin-bottom: 10px; color: #38bdf8; }
-        p { font-size: 14px; color: #94a3b8; margin-bottom: 20px; }
-        .file-input-wrapper { position: relative; overflow: hidden; display: inline-block; background: #0ea5e9; color: white; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background 0.3s; width: 100%; }
-        .file-input-wrapper:hover { background: #0284c7; }
-        .file-input-wrapper input { position: absolute; left: 0; top: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
-        #status { margin-top: 15px; font-size: 13px; color: #a3e635; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b0f19; color: #f1f5f9; font-family: Tahoma, sans-serif; overflow: hidden; }
+        
+        /* واجهة الرفع والتحضير */
+        #setup-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%; position: absolute; z-index: 20; background: #0b0f19; }
+        .card { background: #1e293b; padding: 35px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); text-align: center; max-width: 450px; width: 90%; border: 1px solid #334155; }
+        h1 { font-size: 20px; margin-bottom: 10px; color: #38bdf8; }
+        p { font-size: 13px; color: #94a3b8; margin-bottom: 25px; line-height: 1.5; }
+        
+        .upload-btn { position: relative; overflow: hidden; display: inline-block; background: #0ea5e9; color: white; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; transition: background 0.2s; }
+        .upload-btn:hover { background: #0284c7; }
+        .upload-btn input { position: absolute; left: 0; top: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+        
+        #log-status { margin-top: 15px; font-size: 12px; color: #a3e635; min-height: 20px; }
+
+        /* حاوية الـ WebVM */
         #vm-container { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 10; background: #000; }
         iframe { width: 100%; height: 100%; border: none; }
     </style>
 </head>
 <body>
 
-    <!-- واجهة رفع الملف -->
-    <div class="upload-card" id="upload-screen">
-        <h1>تشغيل التطبيقات في المتصفح</h1>
-        <p>قم برفع ملف الـ (.deb أو .exe) لتشغيله داخل بيئة الويب الوهمية أوفلاين بالكامل.</p>
-        
-        <div class="file-input-wrapper">
-            اختر الملف من جهازك
-            <input type="file" id="appFile" accept=".deb,.exe,.jar,.zip">
+    <!-- شاشة رفع الملف وتحضير البيئة -->
+    <div id="setup-screen">
+        <div class="card">
+            <h1>تشغيل حزم .deb أوفلاين</h1>
+            <p>اختر ملف الـ .deb الخاص بك (مثل ماينكرافت أو أي برنامج لينكس) ليتم تمريره وتثبيته داخل بيئة WebVM في المتصفح.</p>
+            
+            <div class="upload-btn">
+                اختر ملف .deb من جهازك
+                <input type="file" id="debFile" accept=".deb">
+            </div>
+            <div id="log-status"></div>
         </div>
-        <div id="status"></div>
     </div>
 
-    <!-- حاضن الآلة الافتراضية (يظهر بعد رفع الملف) -->
+    <!-- حاوية تشغيل نظام الينكس -->
     <div id="vm-container">
-        <iframe id="vm-frame"></iframe>
+        <iframe id="vmFrame"></iframe>
     </div>
 
     <script>
-        const fileInput = document.getElementById('appFile');
-        const statusDiv = document.getElementById('status');
-        const uploadScreen = document.getElementById('upload-screen');
+        const debInput = document.getElementById('debFile');
+        const logStatus = document.getElementById('log-status');
+        const setupScreen = document.getElementById('setup-screen');
         const vmContainer = document.getElementById('vm-container');
-        const vmFrame = document.getElementById('vm-frame');
+        const vmFrame = document.getElementById('vmFrame');
 
-        fileInput.addEventListener('change', function(event) {
-            const file = event.target.files[0];
+        debInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
             if (!file) return;
 
-            statusDiv.textContent = `جاري تحميل الملف: ${file.name}...`;
+            logStatus.textContent = `جاري قراءة الملف: ${file.name} ...`;
 
-            // حفظ الملف مؤقتاً في متصفح الذاكرة المحلية (IndexedDB / LocalStorage) أو تمريره للـ VM
             const reader = new FileReader();
-            reader.onload = function(e) {
-                const fileData = e.target.result;
-                
-                // تخزين مؤقت للوصول إليه أوفلاين داخل المتصفح
+            reader.onload = function(event) {
                 try {
-                    localStorage.setItem('uploaded_app_name', file.name);
-                    localStorage.setItem('uploaded_app_data', fileData);
+                    // حفظ البيانات مؤقتاً لاستخدامها داخل بيئة المتصفح أوفلاين
+                    localStorage.setItem('custom_deb_name', file.name);
+                    localStorage.setItem('custom_deb_data', event.target.result);
+
+                    logStatus.textContent = "تم حفظ الملف بنجاح، جاري إقلاع نظام الينكس...";
+
+                    setTimeout(() => {
+                        setupScreen.style.display = 'none';
+                        vmContainer.style.display = 'block';
+                        
+                        // توجيه الـ iframe لملف التشغيل الأساسي لبيئة WebVM لديك
+                        // تأكد من أن المسار مطابق لمكان ملف تشغيل الـ WebVM في مشروعك
+                        vmFrame.src = './documents/index.html'; 
+                    }, 1000);
+
                 } catch (err) {
-                    console.log("الملف كبير جداً للتخزين المحلي، سيتم تمريره مباشرة للبيئة.");
+                    logStatus.textContent = "خطأ: الملف كبير جداً على ذاكرة التخزين المؤقت.";
+                    console.error(err);
                 }
-
-                statusDiv.textContent = "تم تجهيز البيئة، جاري الإقلاع...";
-
-                setTimeout(() => {
-                    uploadScreen.style.display = 'none';
-                    vmContainer.style.display = 'block';
-                    // تشغيل بيئة الـ WebVM المحلية
-                    vmFrame.src = './documents/index.html'; // أو مسار واجهة التشغيل لديك
-                }, 1000);
             };
+            
+            // قراءة الملف كـ Data URL لضمان عمله أوفلاين
             reader.readAsDataURL(file);
         });
     </script>
